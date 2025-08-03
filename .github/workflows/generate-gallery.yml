@@ -1,0 +1,129 @@
+name: Generate Image Gallery
+
+on:
+  push:
+    paths:
+      - 'p/**'
+      - '.github/workflows/generate-gallery.yml'
+  workflow_dispatch:
+
+jobs:
+  build-gallery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Generate index.html with lightbox and virtual scroll
+        run: |
+          cat > index.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>📷 Gallery</title>
+            <link rel="stylesheet" href="https://unpkg.com/photoswipe@5.4.2/dist/photoswipe.css" />
+            <style>
+              body {
+                margin: 0;
+                font-family: sans-serif;
+                background: #fafafa;
+              }
+              #gallery-container {
+                height: 100vh;
+                overflow-y: auto;
+                padding: 20px;
+              }
+              .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 10px;
+              }
+              .img-box {
+                cursor: zoom-in;
+              }
+              .img-box img {
+                width: 100%;
+                border-radius: 8px;
+                object-fit: cover;
+                transition: transform 0.3s;
+              }
+              .img-box img:hover {
+                transform: scale(1.05);
+              }
+            </style>
+          </head>
+          <body>
+            <h1 style="text-align:center; padding-top:20px;">📸 Image Gallery</h1>
+            <div id="gallery-container">
+              <div id="gallery" class="grid"></div>
+            </div>
+
+            <script type="module">
+              import PhotoSwipeLightbox from 'https://unpkg.com/photoswipe@5.4.2/dist/photoswipe-lightbox.esm.js';
+
+              const imagePaths = [
+          EOF
+
+          find p -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) | sort | sed "s/^/                '/;s/$/',/" >> index.html
+
+          cat >> index.html << 'EOF'
+              ];
+
+              const galleryEl = document.getElementById('gallery');
+              const buffer = 30;
+              let start = 0;
+
+              function loadBatch() {
+                const end = Math.min(start + buffer, imagePaths.length);
+                for (let i = start; i < end; i++) {
+                  const src = imagePaths[i];
+                  const wrapper = document.createElement('a');
+                  wrapper.href = src;
+                  wrapper.className = 'img-box';
+
+                  const img = document.createElement('img');
+                  img.src = src;
+                  img.alt = src.split('/').pop();
+
+                  img.onload = () => {
+                    wrapper.setAttribute('data-pswp-width', img.naturalWidth);
+                    wrapper.setAttribute('data-pswp-height', img.naturalHeight);
+                  };
+
+                  wrapper.appendChild(img);
+                  galleryEl.appendChild(wrapper);
+                }
+                start = end;
+              }
+
+              const container = document.getElementById('gallery-container');
+              container.addEventListener('scroll', () => {
+                if (container.scrollTop + container.clientHeight >= container.scrollHeight - 300) {
+                  loadBatch();
+                }
+              });
+
+              loadBatch();
+
+              const lightbox = new PhotoSwipeLightbox({
+                gallery: '#gallery',
+                children: 'a',
+                pswpModule: () => import('https://unpkg.com/photoswipe@5.4.2/dist/photoswipe.esm.js'),
+              });
+              lightbox.init();
+            </script>
+          </body>
+          </html>
+          EOF
+
+      - name: Commit and push index.html
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git remote set-url origin https://x-access-token:${TOKEN}@github.com/${{ github.repository }}
+          git add index.html
+          git diff-index --quiet HEAD || git commit -m "chore: regenerate index.html" && git push
